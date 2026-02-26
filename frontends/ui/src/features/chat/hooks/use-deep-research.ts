@@ -306,7 +306,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
               setStreaming(false)
               if (error && !isUserCancelled) {
                 const { addErrorCard } = useChatStore.getState()
-                addErrorCard('agent.deep_research_failed', error, undefined, true)
+                addErrorCard('agent.deep_research_failed', error)
               }
             }
           },
@@ -467,7 +467,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
               if (backendUp) return
               console.error('Deep research SSE failed (backend unreachable):', error)
               const { addErrorCard } = useChatStore.getState()
-              addErrorCard('agent.deep_research_failed', error.message, error.stack, true)
+              addErrorCard('agent.deep_research_failed', error.message, error.stack)
               stopAllDeepResearchSpinners()
             }
           },

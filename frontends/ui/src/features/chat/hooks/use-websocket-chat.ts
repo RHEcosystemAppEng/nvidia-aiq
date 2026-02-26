@@ -431,7 +431,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             'connection.failed',
             errorContent.message,
             errorContent.details,
-            true
           )
           setCurrentStatus(null)
           setStreaming(false)
@@ -454,7 +453,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           errorCode,
           errorContent.message,
           errorContent.details,
-          true // Generally retryable - user can try sending another message
         )
 
         setCurrentStatus(null)
@@ -625,7 +623,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           wsClientRef.current.sendMessage(content, dataSourcesForMessage)
           setLoading(false)
         } else {
-          addErrorCard('connection.failed', 'WebSocket connection failed', undefined, true)
+          addErrorCard('connection.failed', 'WebSocket connection failed')
           setStreaming(false)
           setLoading(false)
         }
@@ -655,7 +653,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         wsClientRef.current.connect()
       } else {
         // No conversation ID - shouldn't happen but handle gracefully
-        addErrorCard('system.unknown', 'No active conversation', undefined, false)
+        addErrorCard('system.unknown', 'No active conversation')
         setStreaming(false)
         setLoading(false)
       }

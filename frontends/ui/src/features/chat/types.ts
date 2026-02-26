@@ -26,7 +26,7 @@ export type MessageType =
 export type DeepResearchBannerType = 'starting' | 'success' | 'failure' | 'cancelled'
 
 /** File upload status types for banner messages */
-export type FileUploadStatusType = 'uploaded' | 'deleted' | 'pending_warning'
+export type FileUploadStatusType = 'uploaded' | 'pending_warning'
 
 /** Status types for status card messages */
 export type StatusType =
@@ -43,27 +43,18 @@ export type StatusType =
 /** File status for file operations */
 export type FileStatus = 'uploading' | 'ingesting' | 'success' | 'deleted' | 'error'
 
-/** Error categories for organization */
-export type ErrorCategory = 'connection' | 'file' | 'auth' | 'agent' | 'system'
-
 /** Error codes using dot-notation for extensibility */
 export type ErrorCode =
   // Connection errors
   | 'connection.lost'
   | 'connection.failed'
   | 'connection.timeout'
-  // File errors
-  | 'file.upload_failed'
-  | 'file.too_large'
-  | 'file.invalid_type'
-  | 'file.ingest_failed'
   // Auth errors
   | 'auth.session_expired'
   | 'auth.unauthorized'
   // Agent errors
   | 'agent.response_failed'
   | 'agent.response_interrupted'
-  | 'agent.tool_error'
   | 'agent.deep_research_failed'
   // System errors
   | 'system.unknown'
@@ -85,7 +76,6 @@ export interface ErrorCardData {
   errorCode: ErrorCode
   errorMessage?: string
   errorDetails?: string
-  isRetryable: boolean
 }
 
 /** File upload status data for banner messages */
@@ -540,7 +530,7 @@ export interface ChatActions {
   /** Update file card status (for progress updates) */
   updateFileCard: (messageId: string, data: Partial<FileCardData>) => void
   /** Add an error card message to the conversation */
-  addErrorCard: (code: ErrorCode, message?: string, details?: string, isRetryable?: boolean) => void
+  addErrorCard: (code: ErrorCode, message?: string, details?: string) => void
   /** Dismiss an error card */
   dismissErrorCard: (messageId: string) => void
 

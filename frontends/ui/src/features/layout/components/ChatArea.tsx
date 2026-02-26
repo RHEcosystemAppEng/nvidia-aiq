@@ -275,7 +275,7 @@ const MessageRenderer: FC<MessageRendererProps> = ({
       )
 
     case 'file_upload_status':
-      // File upload status banners (uploaded, pending_warning, deleted)
+      // File upload status banners (uploaded, pending_warning)
       if (!message.fileUploadStatusData) {
         return null
       }

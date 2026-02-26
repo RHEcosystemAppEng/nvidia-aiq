@@ -1484,7 +1484,6 @@ export const useChatStore = create<ChatStore>()(
           code: ErrorCode,
           message?: string,
           details?: string,
-          isRetryable?: boolean
         ) => {
           const { currentConversation, conversations } = get()
           if (!currentConversation) return
@@ -1501,7 +1500,6 @@ export const useChatStore = create<ChatStore>()(
               errorCode: code,
               errorMessage: message,
               errorDetails: details,
-              isRetryable: isRetryable ?? errorMeta.isRetryable,
             },
           }
 

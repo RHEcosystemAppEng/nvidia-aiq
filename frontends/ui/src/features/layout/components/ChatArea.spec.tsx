@@ -204,7 +204,6 @@ describe('ChatArea', () => {
             errorData: {
               errorCode: 'E001',
               errorMessage: 'Something went wrong',
-              isRetryable: true,
             },
           },
         ],
