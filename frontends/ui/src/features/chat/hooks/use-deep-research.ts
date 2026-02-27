@@ -108,6 +108,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
     patchConversationMessage,
     // Actions for deep research banners
     addDeepResearchBanner,
+    setStreamLoaded,
   } = useChatStore()
   
   /**
@@ -283,6 +284,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
               addDeepResearchBanner('success', jobId, ownerConvId || undefined, { totalTokens, toolCallCount })
               researchStartTimeRef.current = null
               stopAllDeepResearchSpinners(true)
+              setStreamLoaded(true)
               completeDeepResearch()
               setStreaming(false)
             } else if (status === 'failure' || status === 'interrupted') {
@@ -302,6 +304,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
               addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId || undefined)
               researchStartTimeRef.current = null
               clientRef.current?.disconnect()
+              setStreamLoaded(true)
               completeDeepResearch()
               setStreaming(false)
               if (error && !isUserCancelled) {
@@ -488,7 +491,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       addDeepResearchLLMStep, appendToDeepResearchLLMStep,
       completeDeepResearchLLMStep, addDeepResearchAgentWithId, completeDeepResearchAgent,
       addDeepResearchToolCall, completeDeepResearchToolCall, addDeepResearchFile,
-      patchConversationMessage, addDeepResearchBanner, setStreaming,
+      patchConversationMessage, addDeepResearchBanner, setStreaming, setStreamLoaded,
     ]
   )
 
@@ -556,13 +559,14 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         stopAllDeepResearchSpinners()
         clientRef.current?.disconnect()
         clientRef.current = null
+        setStreamLoaded(true)
         completeDeepResearch()
         setStreaming(false)
       }, CANCEL_FALLBACK_TIMEOUT_MS)
     } catch (error) {
       console.error('Failed to cancel job:', error)
     }
-  }, [deepResearchJobId, idToken, patchConversationMessage, addDeepResearchBanner, stopAllDeepResearchSpinners, completeDeepResearch, setStreaming])
+  }, [deepResearchJobId, idToken, patchConversationMessage, addDeepResearchBanner, stopAllDeepResearchSpinners, completeDeepResearch, setStreaming, setStreamLoaded])
 
   /**
    * Auto-connect when job ID changes

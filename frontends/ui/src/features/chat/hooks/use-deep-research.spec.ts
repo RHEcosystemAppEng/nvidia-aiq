@@ -36,6 +36,7 @@ const mockAddErrorCard = vi.fn()
 const mockPatchConversationMessage = vi.fn()
 const mockPersistDeepResearchToSession = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
+const mockSetStreamLoaded = vi.fn()
 
 let mockStoreState = {
   deepResearchJobId: null as string | null,
@@ -82,6 +83,7 @@ vi.mock('../store', () => ({
       patchConversationMessage: mockPatchConversationMessage,
       persistDeepResearchToSession: mockPersistDeepResearchToSession,
       addDeepResearchBanner: mockAddDeepResearchBanner,
+      setStreamLoaded: mockSetStreamLoaded,
     })),
     {
       getState: vi.fn(() => ({
@@ -92,6 +94,7 @@ vi.mock('../store', () => ({
         patchConversationMessage: mockPatchConversationMessage,
         completeDeepResearch: mockCompleteDeepResearch,
         setStreaming: mockSetStreaming,
+        setStreamLoaded: mockSetStreamLoaded,
       })),
       setState: vi.fn((updater: (state: typeof mockStoreState) => Partial<typeof mockStoreState>) => {
         if (typeof updater === 'function') {
