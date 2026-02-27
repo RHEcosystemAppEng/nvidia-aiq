@@ -119,7 +119,8 @@ export const ChatArea: FC<ChatAreaProps> = ({ isAuthenticated = false, onSignIn 
 
             // Derive post-thinking state for user messages with thinking steps.
             // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
-            const shouldCheckPostState = isUserMessage && hasThinkingSteps && !isStreaming
+            const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
+            const shouldCheckPostState = isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
             const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
             const nextUserMessageIndex = remaining.findIndex(
               (m) => m.messageType === 'user' || m.role === 'user'

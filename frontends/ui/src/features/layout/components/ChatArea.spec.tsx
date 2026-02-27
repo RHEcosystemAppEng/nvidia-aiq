@@ -338,4 +338,49 @@ describe('ChatArea', () => {
     expect(secondCallProps.isInterrupted).toBe(false)
     expect(secondCallProps.isThinking).toBe(false)
   })
+
+  test('keeps earlier interrupted thinking state while a new message is actively streaming', () => {
+    mockGetThinkingStepsForMessage.mockImplementation((messageId: string) => {
+      if (messageId === 'user-1') return [{ id: 'step-1', displayName: 'Step 1' }]
+      if (messageId === 'user-2') return [{ id: 'step-2', displayName: 'Step 2' }]
+      return []
+    })
+
+    vi.mocked(useChatStore).mockReturnValue({
+      currentConversation: {
+        messages: [
+          { id: 'user-1', role: 'user', content: 'First question', messageType: 'user' },
+          { id: 'user-2', role: 'user', content: 'Second question', messageType: 'user' },
+        ],
+      },
+      isLoading: true,
+      isStreaming: true,
+      currentUserMessageId: 'user-2',
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    } as unknown as ReturnType<typeof useChatStore>)
+
+    render(<ChatArea isAuthenticated={true} />)
+
+    expect(mockChatThinking).toHaveBeenCalledTimes(2)
+
+    const firstCallProps = mockChatThinking.mock.calls[0][0] as {
+      isInterrupted?: boolean
+      isThinking?: boolean
+    }
+    const secondCallProps = mockChatThinking.mock.calls[1][0] as {
+      isInterrupted?: boolean
+      isThinking?: boolean
+    }
+
+    // First turn was interrupted — must keep warning icon even while second turn streams.
+    expect(firstCallProps.isInterrupted).toBe(true)
+    expect(firstCallProps.isThinking).toBe(false)
+
+    // Second turn is actively streaming — shows spinner, not interrupted.
+    expect(secondCallProps.isThinking).toBe(true)
+    expect(secondCallProps.isInterrupted).toBe(false)
+  })
 })
