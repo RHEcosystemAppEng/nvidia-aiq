@@ -606,7 +606,6 @@ my_backend = [
 [tool.setuptools]
 packages = [
     "aiq_sources",
-    "knowledge_layer.eci",
     "knowledge_layer.knowledge",
     "knowledge_layer.llamaindex",
     "knowledge_layer.foundational_rag",
