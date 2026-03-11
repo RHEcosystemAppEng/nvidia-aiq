@@ -29,6 +29,11 @@ service:
 # --- Backend environment variables ---
 # AIRA_HOSTED_NIMS must be "false" — see Challenge 5 in docs/deploy-openshift.md.
 # The config.yml uses env var substitution for all model URLs.
+#
+# NOTE: If your cluster has sufficient GPU capacity (2 GPUs with 40+ GB VRAM each),
+# change INSTRUCT_MODEL_NAME to "meta/llama-3.3-70b-instruct" and update the nim-llm
+# section below accordingly. The 70B model is what the upstream blueprint was designed
+# for and produces significantly higher quality research reports.
 backendEnvVars:
   INSTRUCT_MODEL_NAME: "meta/llama-3.1-8b-instruct"
   INSTRUCT_MODEL_TEMP: "0.0"
@@ -45,6 +50,10 @@ backendEnvVars:
   RAG_INGEST_URL: "http://ingestor-server.<rag-namespace>.svc.cluster.local:8082"
 
 # --- Local NIM LLM (Llama 3.1 8B — 1 GPU) ---
+# Default: Llama 3.1 8B (1 GPU, 16 GB VRAM minimum).
+# Recommended: Llama 3.3 70B Instruct (2 GPUs, 40+ GB VRAM each) — higher quality reports.
+# To upgrade, uncomment the 70B block below and comment out the 8B block,
+# or set INSTRUCT_MODEL=70b when running deploy-openshift.sh.
 nim-llm:
   enabled: true
   service:
@@ -61,6 +70,19 @@ nim-llm:
   model:
     ngcAPIKey: ""
     name: "meta/llama-3.1-8b-instruct"
+  # --- To use Llama 3.3 70B Instruct instead, replace the above nim-llm block with: ---
+  # image:
+  #   repository: nvcr.io/nim/meta/llama-3.3-70b-instruct
+  #   pullPolicy: IfNotPresent
+  #   tag: "latest"
+  # resources:
+  #   limits:
+  #     nvidia.com/gpu: 2
+  #   requests:
+  #     nvidia.com/gpu: 2
+  # model:
+  #   ngcAPIKey: ""
+  #   name: "meta/llama-3.3-70b-instruct"
 
 # --- Frontend: ClusterIP instead of NodePort (exposed via OpenShift Route) ---
 frontend:

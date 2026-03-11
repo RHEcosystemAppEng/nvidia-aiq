@@ -13,6 +13,7 @@ This guide covers deploying the [NVIDIA AI-Q Research Assistant (AIRA) v1.2.0](h
 - [Accessing the UI](#accessing-the-ui)
 - [Document Ingestion](#document-ingestion)
 - [What's Modified from Upstream](#whats-modified-from-upstream)
+- [Upgrading to Llama 70B](#upgrading-to-llama-70b)
 - [OpenShift-Specific Challenges and Solutions](#openshift-specific-challenges-and-solutions)
 - [Deployment Files](#deployment-files)
 
@@ -23,7 +24,7 @@ This guide covers deploying the [NVIDIA AI-Q Research Assistant (AIRA) v1.2.0](h
 AIRA is an on-premise deep research assistant that generates research reports from internal data and web search, with human-in-the-loop review. It combines:
 
 - **Research Agent** (AIRA backend) that plans multi-step research queries, retrieves documents, and synthesizes reports
-- **Local LLM** (Llama 3.1 8B via NIM) for instruction-following
+- **Local LLM** (Llama 3.1 8B via NIM) for instruction-following — see note below on upgrading to 70B
 - **Hosted LLM** (Nemotron via NVIDIA API) for reasoning
 - **RAG pipeline** with vector search (Milvus), embedding (NIM), and reranking (NIM) for document retrieval
 - **Document processing** (nv-ingest) with OCR, page layout analysis, and table extraction for rich document ingestion
@@ -47,7 +48,7 @@ AIRA is **not standalone** — it requires the NVIDIA RAG Blueprint as a depende
 | AIRA | Backend | `nvcr.io/nvidia/blueprint/aira-backend:v1.2.0` | 0 | Research assistant API |
 | AIRA | Frontend | `nvcr.io/nvidia/blueprint/aira-frontend:v1.2.0` | 0 | React web UI |
 | AIRA | Phoenix | `arizephoenix/phoenix:latest` | 0 | OpenTelemetry tracing |
-| AIRA | LLM NIM | `nvcr.io/nim/meta/llama-3.1-8b-instruct` | **1** | Instruct LLM (local) |
+| AIRA | LLM NIM | `nvcr.io/nim/meta/llama-3.1-8b-instruct` | **1** | Instruct LLM (local) — upgrade to `llama-3.3-70b-instruct` (2 GPUs) for higher quality |
 | RAG | RAG Server | `nvcr.io/nvidia/blueprint/rag-server:2.3.0` | 0 | RAG query + generation API |
 | RAG | Ingestor | `nvcr.io/nvidia/blueprint/ingestor-server:2.3.0` | 0 | Document upload + indexing |
 | RAG | nv-ingest Runtime | nv-ingest container | 0 | Document processing orchestrator |
@@ -61,6 +62,10 @@ AIRA is **not standalone** — it requires the NVIDIA RAG Blueprint as a depende
 | RAG | MinIO, Redis, etcd | *(various)* | 0 | Infrastructure services |
 
 **Total: 18 pods, 7 GPUs.**
+
+> **Recommended: Use Llama 3.3 70B Instruct if GPUs are available.**
+>
+> The default configuration uses **Llama 3.1 8B** to minimize GPU requirements (1 GPU). However, the upstream blueprint is designed for **Llama 3.3 70B Instruct** (2 GPUs), which produces significantly higher quality research reports. If your cluster has the GPU capacity, you should use 70B instead. See [Upgrading to Llama 70B](#upgrading-to-llama-70b) below for instructions. With 70B, the total requirement becomes **8 GPUs** (2 for the LLM instead of 1).
 
 ---
 
@@ -87,7 +92,7 @@ This deployment was validated on the following cluster configuration:
 
 Any cluster with the following should work:
 
-- **7 GPUs** with at least **16 GB VRAM** each (NVIDIA A100, A10G, L40S, L4, or H100 all work)
+- **7 GPUs** with at least **16 GB VRAM** each for Llama 8B (or **8 GPUs** with at least **40 GB VRAM** each for the recommended Llama 70B)
 - **~17 CPU cores** and **~86 GiB RAM** across worker nodes for non-GPU pods
 - **50 GiB persistent storage** (Milvus vector DB + MinIO object storage + ingestor)
 - To run **Nemotron 49B locally** instead of using the hosted API, add **4 more GPUs** with 40+ GB VRAM each
@@ -111,7 +116,7 @@ A full upstream deployment requires ~16 GPUs. This deployment reduces that to 7 
 
 | Component | Upstream | This Deployment | Impact |
 |-----------|----------|-----------------|--------|
-| Instruct LLM | Llama 3.3 70B (2 GPUs) | Llama 3.1 8B (1 GPU) | Lower quality research reports |
+| Instruct LLM | Llama 3.3 70B (2 GPUs) | Llama 3.1 8B (1 GPU) — **[upgrade to 70B recommended](#upgrading-to-llama-70b)** | Lower quality reports with 8B; use 70B if GPUs permit |
 | Nemotron reasoning | Local NIM (2+ GPUs) | NVIDIA hosted API | Adds network latency, subject to rate limits |
 | RAG LLM | Local NIM (2+ GPUs) | NVIDIA hosted API | Same latency trade-off |
 | Milvus | GPU-accelerated | CPU mode | Slower vector search on large collections |
@@ -126,7 +131,7 @@ A full upstream deployment requires ~16 GPUs. This deployment reduces that to 7 
 - Helm 3.x installed
 - NVIDIA GPU Operator installed on the cluster and `nvidia.com/gpu` resource is allocatable
 - NGC API key from [NGC](https://org.ngc.nvidia.com/setup/api-keys) with access to the `nvidia/blueprint` organization (standard keys may only have `nim/` access — see [Challenge 11](#11-ngc-image-pull-entitlements))
-- At least **7 available GPUs**
+- At least **7 available GPUs** (8 if using Llama 70B)
 - GPU nodes are ready: `oc get nodes -l nvidia.com/gpu`
 - GPU node taint keys identified: `oc describe node <gpu-node> | grep -A5 Taints`
 
@@ -135,7 +140,7 @@ A full upstream deployment requires ~16 GPUs. This deployment reduces that to 7 
 | Component | CPU | Memory | GPU | Storage |
 |-----------|-----|--------|-----|---------|
 | AIRA (backend + frontend + phoenix) | 2 cores | 2 Gi | 0 | — |
-| LLM NIM (Llama 3.1 8B) | 2 cores | 16 Gi | **1 GPU** | — |
+| LLM NIM (Llama 3.1 8B, or 70B with 2 GPUs) | 2 cores | 16 Gi (8B) / 80 Gi (70B) | **1 GPU** (8B) / **2 GPUs** (70B) | — |
 | RAG (rag-server + ingestor) | 2 cores | 12 Gi | 0 | 50 Gi PVC |
 | RAG infrastructure (Milvus, MinIO, Redis, etcd) | 4 cores | 8 Gi | 0 | — |
 | nv-ingest runtime | 2 cores | 8 Gi | 0 | — |
@@ -162,6 +167,7 @@ All options are set via environment variables before calling the deploy script.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NVIDIA_API_KEY` | *(not set)* | build.nvidia.com key for hosted Nemotron 49B inference. If not set, Nemotron falls back to the local Llama 8B NIM. See [Tested Hardware > API keys](#api-keys). |
+| `INSTRUCT_MODEL` | `8b` | Set to `70b` to use Llama 3.3 70B Instruct (2 GPUs, 40+ GB VRAM each) instead of 8B (1 GPU). **70B is recommended** if your cluster has the GPU capacity — see [Upgrading to Llama 70B](#upgrading-to-llama-70b). |
 | `RAG_NAMESPACE` | `${AIRA_NAMESPACE}-rag` | Namespace for the RAG Blueprint deployment |
 | `TAVILY_API_KEY` | `placeholder` | Tavily API key for web search (optional feature) |
 | `STORAGE_CLASS` | `gp3-csi` | StorageClass for persistent volumes |
@@ -181,7 +187,7 @@ GPU_TOLERATION_KEYS=<taint-key> \
 bash deploy/helm/deploy-openshift.sh
 ```
 
-`NVIDIA_API_KEY` is optional — if omitted, Nemotron reasoning falls back to the local Llama 8B. Replace `GPU_TOLERATION_KEYS` with the actual taint key(s) on your GPU nodes (comma-separated for multiple taints). To find them:
+`NVIDIA_API_KEY` is optional — if omitted, Nemotron reasoning falls back to the local Llama 8B. To use Llama 70B instead of 8B, set `INSTRUCT_MODEL=70b` (see [Upgrading to Llama 70B](#upgrading-to-llama-70b)). Replace `GPU_TOLERATION_KEYS` with the actual taint key(s) on your GPU nodes (comma-separated for multiple taints). To find them:
 
 ```bash
 oc describe node <gpu-node> | grep -A5 Taints
@@ -318,6 +324,53 @@ This creates document collections from each zip file. Ingestion of the 43-file B
 ### Upload via the frontend UI
 
 Open the frontend, create a new collection, and upload files (max 10 at a time). Supported file types: `.pdf`, `.pptx`, `.txt`, `.md`, `.docx`.
+
+---
+
+## Upgrading to Llama 70B
+
+The default deployment uses **Llama 3.1 8B** to minimize GPU requirements. The upstream AIRA blueprint is designed for **Llama 3.3 70B Instruct**, which produces significantly higher quality research reports. If your cluster has the GPU capacity, you should use 70B.
+
+### What changes
+
+| | Llama 3.1 8B (default) | Llama 3.3 70B Instruct (recommended) |
+|--|------------------------|--------------------------------------|
+| GPUs | 1 | 2 (each with 40+ GB VRAM) |
+| Memory | ~16 Gi | ~80 Gi |
+| Total cluster GPUs | 7 | 8 |
+| Report quality | Adequate | Significantly higher |
+
+### How to switch
+
+**Option A: Set environment variable before running the deploy script:**
+
+```bash
+NGC_API_KEY=nvapi-...           \
+NVIDIA_API_KEY=nvapi-...        \
+AIRA_NAMESPACE=<your-namespace> \
+INSTRUCT_MODEL=70b              \
+bash deploy/helm/deploy-openshift.sh
+```
+
+**Option B: Edit `values-openshift.yaml` directly:**
+
+```yaml
+backendEnvVars:
+  INSTRUCT_MODEL_NAME: "meta/llama-3.3-70b-instruct"
+
+nim-llm:
+  image:
+    repository: nvcr.io/nim/meta/llama-3.3-70b-instruct
+  resources:
+    limits:
+      nvidia.com/gpu: 2
+    requests:
+      nvidia.com/gpu: 2
+  model:
+    name: "meta/llama-3.3-70b-instruct"
+```
+
+> **VRAM requirement:** Llama 70B requires at least **2 GPUs with 40 GB VRAM each** (e.g., 2x A100 80GB, 2x H100 80GB, or 2x L40S 48GB). It will not fit on a single 16 GB or 24 GB GPU.
 
 ---
 
@@ -627,7 +680,7 @@ oc delete project <rag-namespace>
 All OpenShift customizations are codified in the following files:
 
 - **`deploy/helm/deploy-openshift.sh`** — Main deployment script. Creates both namespaces, secrets, SCCs, deploys RAG and AIRA via Helm, applies all post-deploy patches (Milvus GPU removal, nv-ingest tolerations, nv-ingest resource tuning, embedding NIM tokenizer fix, ingestion concurrency tuning), creates Routes, and waits for rollout.
-- **`deploy/helm/values-openshift.yaml`** — AIRA Helm values override. Enables local LLM NIM (Llama 3.1 8B), configures Nemotron via hosted API, fixes service types, points to RAG namespace.
+- **`deploy/helm/values-openshift.yaml`** — AIRA Helm values override. Enables local LLM NIM (Llama 3.1 8B by default; see [Upgrading to Llama 70B](#upgrading-to-llama-70b) for the recommended 70B configuration), configures Nemotron via hosted API, fixes service types, points to RAG namespace.
 - **`deploy/helm/rag-values-openshift.yaml`** — RAG Blueprint Helm values override. Enables nv-ingest GPU models (OCR, page elements, table structure, graphic elements), disables unused models, reduces memory requests, keeps infrastructure services.
 - **`deploy/helm/aiq-aira/`** — Local AIRA Helm chart with two template patches:
   - `templates/deployment.yaml` — Uncommented `NEMOTRON_API_KEY` (Challenge 6)

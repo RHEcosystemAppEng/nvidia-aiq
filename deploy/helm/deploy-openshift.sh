@@ -7,6 +7,7 @@
 # Usage:
 #   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira bash deploy/helm/deploy-openshift.sh
 #   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira GPU_TOLERATION_KEYS=g6-gpu,p4-gpu,nvidia.com/gpu bash deploy/helm/deploy-openshift.sh
+#   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira INSTRUCT_MODEL=70b bash deploy/helm/deploy-openshift.sh
 #
 # Required environment variables:
 #   NGC_API_KEY     — NGC org key for pulling images from nvcr.io and NIM model downloads.
@@ -34,6 +35,22 @@ else
   BACKEND_API_KEY="$NVIDIA_API_KEY"
 fi
 
+# Instruct LLM model selection.
+# Set INSTRUCT_MODEL=70b to use Llama 3.3 70B Instruct (recommended, requires 2 GPUs with 40+ GB VRAM).
+# Default is 8b (Llama 3.1 8B, 1 GPU) to minimize GPU requirements.
+INSTRUCT_MODEL="${INSTRUCT_MODEL:-8b}"
+if [ "$INSTRUCT_MODEL" = "70b" ]; then
+  INSTRUCT_MODEL_NAME="meta/llama-3.3-70b-instruct"
+  INSTRUCT_IMAGE="nvcr.io/nim/meta/llama-3.3-70b-instruct"
+  INSTRUCT_GPU_COUNT="2"
+  echo "Instruct LLM: Llama 3.3 70B Instruct (2 GPUs) — recommended for higher quality reports"
+else
+  INSTRUCT_MODEL_NAME="meta/llama-3.1-8b-instruct"
+  INSTRUCT_IMAGE="nvcr.io/nim/meta/llama-3.1-8b-instruct"
+  INSTRUCT_GPU_COUNT="1"
+  echo "Instruct LLM: Llama 3.1 8B (1 GPU) — set INSTRUCT_MODEL=70b for higher quality reports"
+fi
+
 # Configurable settings
 RAG_NAMESPACE="${RAG_NAMESPACE:-${AIRA_NAMESPACE}-rag}"
 TAVILY_API_KEY="${TAVILY_API_KEY:-placeholder}"
@@ -58,6 +75,7 @@ echo "=== AIRA OpenShift Deployment ==="
 echo "AIRA namespace:    $AIRA_NAMESPACE"
 echo "RAG namespace:     $RAG_NAMESPACE"
 echo "GPU tolerations:   ${TKEYS[*]}"
+echo "Instruct model:    $INSTRUCT_MODEL_NAME ($INSTRUCT_GPU_COUNT GPU)"
 echo "Nemotron model:    $NEMOTRON_MODEL_NAME"
 echo "Nemotron endpoint: $NEMOTRON_BASE_URL"
 echo ""
@@ -240,7 +258,12 @@ helm upgrade --install aira "$AIRA_CHART" \
   --set "backendEnvVars.RAG_INGEST_URL=http://ingestor-server.${RAG_NAMESPACE}.svc.cluster.local:8082" \
   --set "backendEnvVars.NEMOTRON_BASE_URL=$NEMOTRON_BASE_URL" \
   --set "backendEnvVars.NEMOTRON_MODEL_NAME=$NEMOTRON_MODEL_NAME" \
+  --set "backendEnvVars.INSTRUCT_MODEL_NAME=$INSTRUCT_MODEL_NAME" \
+  --set "nim-llm.image.repository=$INSTRUCT_IMAGE" \
+  --set "nim-llm.model.name=$INSTRUCT_MODEL_NAME" \
   --set "nim-llm.model.ngcAPIKey=$NGC_API_KEY" \
+  --set "nim-llm.resources.limits.nvidia\\.com/gpu=$INSTRUCT_GPU_COUNT" \
+  --set "nim-llm.resources.requests.nvidia\\.com/gpu=$INSTRUCT_GPU_COUNT" \
   "${AIRA_TOLERATION_ARGS[@]}"
 
 # Create OpenShift Routes

@@ -134,6 +134,8 @@ Deploying the AI-Q Research Assistant on OpenShift requires additional configura
 
 This deployment was validated with **7 GPUs** (Llama 3.1 8B for instruction-following, Nemotron 49B via hosted API for reasoning, 4 nv-ingest GPU models for document processing, plus embedding and reranking NIMs). See the deployment guide for full hardware details and minimum requirements.
 
+> **Note:** The default OpenShift configuration uses **Llama 3.1 8B** as the instruct model to reduce GPU requirements. If your cluster has additional GPU capacity, it is recommended to use **Llama 3.3 70B Instruct** instead — this is the model the upstream blueprint was designed for and produces significantly higher quality research reports. See `values-openshift.yaml` for configuration details.
+
 - [docs/deploy-openshift.md](docs/deploy-openshift.md): Full deployment guide with OpenShift-specific challenges and solutions.
 - [deploy/helm/deploy-openshift.sh](deploy/helm/deploy-openshift.sh): Automated deployment script (creates namespaces, secrets, SCCs, deploys RAG Blueprint and AIRA via Helm, applies all post-deploy patches).
 - [deploy/helm/values-openshift.yaml](deploy/helm/values-openshift.yaml): AIRA Helm value overrides for OpenShift compatibility.
