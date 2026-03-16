@@ -11,7 +11,7 @@ This guide covers deploying the [NVIDIA AI-Q Research Assistant (AIRA) v1.2.0](h
 - [Deployment](#deployment)
 - [Verification](#verification)
 - [Accessing the UI](#accessing-the-ui)
-- [Document Ingestion](#document-ingestion)
+- [Testing and Data Ingestion](#testing-and-data-ingestion)
 - [What's Modified from Upstream](#whats-modified-from-upstream)
 - [Upgrading to Llama 70B](#upgrading-to-llama-70b)
 - [OpenShift-Specific Challenges and Solutions](#openshift-specific-challenges-and-solutions)
@@ -288,20 +288,48 @@ Open the frontend URL in a browser. The Phoenix tracing UI shows OpenTelemetry t
 
 ---
 
-## Document Ingestion
+## Testing and Data Ingestion
 
-AIRA requires documents to be uploaded into collections before it can perform research. Place your dataset zip files in the `data/` directory (zip files are excluded from the repo via `.gitignore`). The upstream blueprint provides two sample datasets:
+The deploy script creates the full AIRA + RAG stack but does **not** ingest any documents. Milvus starts empty. To test end-to-end research, you need to upload documents into a collection first.
 
-- **Biomedical_Dataset** — Scientific journals on the Cystic Fibrosis CFTR gene (2021–2024)
+### How the ingestion pipeline works
+
+When you upload documents, they flow through the full nv-ingest GPU pipeline before becoming searchable:
+
+```
+PDF files → ingestor-server → nv-ingest runtime (Ray) → GPU model pipeline → embedding NIM → Milvus
+```
+
+The nv-ingest runtime orchestrates each document through these GPU models in sequence:
+
+1. **OCR** — Extracts text from scanned pages and images
+2. **Page Elements** — Identifies headers, columns, and page layout structure
+3. **Table Structure** — Detects and extracts tabular data into structured format
+4. **Graphic Elements** — Identifies charts, diagrams, and figures
+5. **Embedding NIM** — Converts the extracted text chunks into vector embeddings
+
+The resulting embeddings and metadata are stored in **Milvus** (vector database). When a user asks a question in the frontend, the AIRA backend queries Milvus via the rag-server to retrieve relevant chunks, reranks them, and uses the instruct LLM + Nemotron reasoning model to synthesize a research report.
+
+### Sample datasets
+
+The upstream blueprint provides two sample datasets. Place zip files in the `data/` directory (zip files are excluded from the repo via `.gitignore`):
+
+- **Biomedical_Dataset** — 43 scientific journals on the Cystic Fibrosis CFTR gene (2021–2024)
 - **Financial_Dataset** — Financial reports from Apple, Facebook, Google, Meta (2020–2024)
 
-### Upload via the bulk upload utility
+### Upload via the bulk upload script
 
-Place one or more `.zip` files containing PDFs into the `data/` directory, then port-forward the ingestor service and run the upload script:
+The `data/zip_to_collection.py` script automates bulk ingestion. It reads all `.zip` files in the `data/` directory, creates a Milvus collection for each, extracts the PDFs, and uploads them to the ingestor.
+
+**Step 1: Port-forward the ingestor service** (the ingestor runs inside the RAG namespace and is not exposed via a Route):
 
 ```bash
-oc port-forward -n <rag-namespace> service/ingestor-server 8082:8082 &
+oc port-forward -n <rag-namespace> svc/ingestor-server 8082:8082 &
+```
 
+**Step 2: Run the upload script:**
+
+```bash
 cd data
 export RAG_INGEST_URL="http://localhost:8082"
 
@@ -311,11 +339,47 @@ uv run pip install -r requirements.txt
 uv run python zip_to_collection.py
 ```
 
-The script creates a document collection from each zip file. Ingestion of the 43-file Biomedical Dataset takes approximately 7 minutes with the full nv-ingest GPU pipeline (OCR, page layout, table structure, chart detection, embedding). The script processes files in batches of 4 sequentially.
+The script creates a collection per zip file, uploads all PDFs in a single batch, and polls the ingestor until processing completes. Expected output:
+
+```
+INFO: Starting upload of files to RAG server
+INFO: Found 1 zip files in directory .
+INFO: Processing zip file: ./Biomedical_Dataset.zip
+INFO: Created collection with result: ... "total_success":1 ...
+INFO: Starting upload of 43 files to Biomedical_Dataset
+INFO: Upload started with message: Ingestion started in background
+INFO: Uploading files to Biomedical_Dataset. Elapsed time: 10 seconds
+...
+INFO: Upload to collection Biomedical_Dataset finished with result: 43 documents attempted.
+INFO: Document Results: ... Success ... (43/43)
+INFO: Failed Documents: (none)
+```
+
+Ingestion of the 43-file Biomedical Dataset takes approximately **8 minutes** with the full nv-ingest GPU pipeline. The ingestor processes files in batches of 4 sequentially (tuned by `NV_INGEST_FILES_PER_BATCH` to avoid overwhelming the embedding NIM).
 
 ### Upload via the frontend UI
 
-Open the frontend, create a new collection, and upload files (max 10 at a time). Supported file types: `.pdf`, `.pptx`, `.txt`, `.md`, `.docx`.
+Alternatively, open the frontend, click **Collections**, create a new collection, and upload files manually (max 10 at a time). Supported file types: `.pdf`, `.pptx`, `.txt`, `.md`, `.docx`.
+
+### Verify ingestion
+
+After the script completes, confirm the collection exists and has documents:
+
+```bash
+oc exec deployment/rag-server -n <rag-namespace> -- \
+  curl -s http://milvus:19530/v2/vectordb/collections/list | python3 -m json.tool
+```
+
+### Test in the frontend
+
+1. Open the frontend URL (printed by the deploy script or `oc get route aira-frontend -n <aira-namespace>`)
+2. Click **Collections** in the left panel — you should see your uploaded collection (e.g., `Biomedical_Dataset`)
+3. Select the collection and click **Begin Researching**
+4. Choose **Llama Nemotron Super** as the reasoning model
+5. Enter a query (e.g., "What are the latest findings on CFTR modulators for cystic fibrosis?")
+6. AIRA will plan sub-queries, retrieve relevant document chunks from the collection, and generate a multi-section research report with citations
+
+The first query may take 1–2 minutes as the LLM NIM warms up its inference cache.
 
 ---
 
