@@ -1,11 +1,7 @@
 # OpenShift-specific value overrides for the AIRA Helm chart.
-# Used by deploy-openshift.sh. Can also be used standalone:
+# Used by openshift/deploy/helm/deploy-openshift.sh.
 #
-#   helm install aira deploy/helm/aiq-aira/ \
-#     -n <aira-namespace> \
-#     -f deploy/helm/values-openshift.yaml
-#
-# See docs/deploy-openshift.md for full documentation.
+# See openshift/docs/deploy-openshift.md for full documentation.
 
 # --- Secrets (pre-created by deploy script, don't let Helm create them) ---
 imagePullSecret:

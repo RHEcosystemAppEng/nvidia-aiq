@@ -184,7 +184,7 @@ NGC_API_KEY=nvapi-...           \
 NVIDIA_API_KEY=nvapi-...        \
 AIRA_NAMESPACE=<your-namespace> \
 GPU_TOLERATION_KEYS=<taint-key> \
-bash deploy/helm/deploy-openshift.sh
+bash openshift/deploy/helm/deploy-openshift.sh
 ```
 
 `NVIDIA_API_KEY` is optional — if omitted, Nemotron reasoning falls back to the local Llama 8B. To use Llama 70B instead of 8B, set `INSTRUCT_MODEL=70b` (see [Upgrading to Llama 70B](#upgrading-to-llama-70b)). Replace `GPU_TOLERATION_KEYS` with the actual taint key(s) on your GPU nodes (comma-separated for multiple taints). To find them:
@@ -290,21 +290,14 @@ Open the frontend URL in a browser. The Phoenix tracing UI shows OpenTelemetry t
 
 ## Document Ingestion
 
-AIRA requires documents to be uploaded into collections before it can perform research. The repo includes two sample datasets:
+AIRA requires documents to be uploaded into collections before it can perform research. Place your dataset zip files in the `data/` directory (zip files are excluded from the repo via `.gitignore`). The upstream blueprint provides two sample datasets:
 
 - **Biomedical_Dataset** — Scientific journals on the Cystic Fibrosis CFTR gene (2021–2024)
 - **Financial_Dataset** — Financial reports from Apple, Facebook, Google, Meta (2020–2024)
 
 ### Upload via the bulk upload utility
 
-First, ensure Git LFS files are pulled (the zip files are LFS-tracked):
-
-```bash
-git lfs install
-git lfs pull
-```
-
-Port-forward the ingestor service and run the upload script:
+Place one or more `.zip` files containing PDFs into the `data/` directory, then port-forward the ingestor service and run the upload script:
 
 ```bash
 oc port-forward -n <rag-namespace> service/ingestor-server 8082:8082 &
@@ -315,11 +308,10 @@ export RAG_INGEST_URL="http://localhost:8082"
 uv python install 3.12
 uv venv --python 3.12 --python-preference managed
 uv run pip install -r requirements.txt
-cp files/* .
 uv run python zip_to_collection.py
 ```
 
-This creates document collections from each zip file. Ingestion of the 43-file Biomedical Dataset takes approximately 7 minutes with the full nv-ingest GPU pipeline (OCR, page layout, table structure, chart detection, embedding). The script processes files in batches of 4 sequentially.
+The script creates a document collection from each zip file. Ingestion of the 43-file Biomedical Dataset takes approximately 7 minutes with the full nv-ingest GPU pipeline (OCR, page layout, table structure, chart detection, embedding). The script processes files in batches of 4 sequentially.
 
 ### Upload via the frontend UI
 
@@ -349,10 +341,10 @@ NGC_API_KEY=nvapi-...           \
 NVIDIA_API_KEY=nvapi-...        \
 AIRA_NAMESPACE=<your-namespace> \
 INSTRUCT_MODEL=70b              \
-bash deploy/helm/deploy-openshift.sh
+bash openshift/deploy/helm/deploy-openshift.sh
 ```
 
-**Option B: Edit `values-openshift.yaml` directly:**
+**Option B: Edit `openshift/deploy/helm/values-openshift.yaml` directly:**
 
 ```yaml
 backendEnvVars:
@@ -376,7 +368,7 @@ nim-llm:
 
 ## OpenShift-Specific Challenges and Solutions
 
-The upstream AIRA and RAG Blueprint Helm charts target vanilla Kubernetes. Running them on OpenShift requires addressing incompatibilities across security contexts, filesystem permissions, GPU scheduling, networking, and configuration. All fixes are applied at install time by `deploy-openshift.sh` and the values override files.
+The upstream AIRA and RAG Blueprint Helm charts target vanilla Kubernetes. Running them on OpenShift requires addressing incompatibilities across security contexts, filesystem permissions, GPU scheduling, networking, and configuration. All fixes are applied at install time by `openshift/deploy/helm/deploy-openshift.sh` and the values override files.
 
 ---
 
@@ -421,7 +413,7 @@ env:
     value: /tmp/.phoenix
 ```
 
-This patch is applied in `deploy/helm/aiq-aira/templates/phoenix-tracing.yaml` (already included in this repo).
+This patch is applied in `openshift/deploy/helm/patches/aiq-aira-templates/phoenix-tracing.yaml` and copied into the upstream chart at deploy time by the deploy script.
 
 ---
 
@@ -459,7 +451,7 @@ The upstream chart configures the frontend as `NodePort` on port 30080. OpenShif
 **Solution:** Override both services to `ClusterIP` and expose via OpenShift Routes:
 
 ```yaml
-# values-openshift.yaml
+# openshift/deploy/helm/values-openshift.yaml
 service:
   type: ClusterIP
   port: 3838
@@ -509,7 +501,7 @@ The `NEMOTRON_API_KEY` environment variable is commented out in the upstream `te
       key: NVIDIA_API_KEY
 ```
 
-This patch is applied in `deploy/helm/aiq-aira/templates/deployment.yaml` (already included in this repo).
+This patch is applied in `openshift/deploy/helm/patches/aiq-aira-templates/deployment.yaml` and copied into the upstream chart at deploy time by the deploy script.
 
 ---
 
@@ -569,7 +561,7 @@ Default resource requests in the RAG chart are sized for large production deploy
 **Solution:** Reduce in `rag-values-openshift.yaml` (ingestor) and via post-deploy patch (nv-ingest runtime):
 
 ```yaml
-# rag-values-openshift.yaml
+# openshift/deploy/helm/rag-values-openshift.yaml
 ingestor-server:
   resources:
     limits:
@@ -622,19 +614,22 @@ oc annotate secret ngc-secret \
 
 ---
 
-### 13. Embedding NIM Tokenizer Concurrency Bug
+### 13. NIM Tokenizer Concurrency Bug (Embedding + Reranking)
 
-The HuggingFace `tokenizers` Rust library panics with `PanicException: The global thread pool has not been initialized.: ThreadPoolBuildError { kind: GlobalPoolAlreadyInitialized }` when multiple embedding requests arrive concurrently. This causes the embedding NIM to return HTTP 500 for every request, failing all document ingestion.
+The HuggingFace `tokenizers` Rust library panics with `PanicException: The global thread pool has not been initialized.: ThreadPoolBuildError` when the rayon thread pool initialization races during Triton model loading. This affects **both** the embedding NIM and the reranking NIM. The embedding NIM returns HTTP 500 for every request (failing document ingestion), and the reranking NIM fails its startup probe indefinitely (causing RAG query failures with `Connection refused` to `nemoretriever-ranking-ms`).
 
-**Error:** `Embedding error occurred: Error code: 500 - {'object': 'error', 'message': 'Something went wrong with the request.', 'detail': "Failed to process the request(s) for model ... PanicException: The global thread pool has not been initialized.: ThreadPoolBuildError { kind: GlobalPoolAlreadyInitialized }"}`
+**Error (embedding):** `Embedding error occurred: Error code: 500 - ... PanicException: The global thread pool has not been initialized.: ThreadPoolBuildError { kind: GlobalPoolAlreadyInitialized }`
 
-**Solution:** Disable tokenizer parallelism and reduce nv-ingest concurrency:
+**Error (reranking):** `Failed to initialize Python stub: PanicException: The global thread pool has not been initialized.: ThreadPoolBuildError { kind: IOError(Os { code: 11, kind: WouldBlock, message: "Resource temporarily unavailable" }) }` — the pod never passes the startup probe and keeps restarting.
+
+**Solution:** Disable tokenizer parallelism on both NIMs and reduce nv-ingest concurrency:
 
 ```bash
-# Disable tokenizer thread pool (prevents the race condition)
+# Disable tokenizer thread pool on both NIMs (prevents the race condition)
 oc set env deployment/rag-nvidia-nim-llama-32-nv-embedqa-1b-v2 TOKENIZERS_PARALLELISM=false
+oc set env deployment/rag-nvidia-nim-llama-32-nv-rerankqa-1b-v2 TOKENIZERS_PARALLELISM=false
 
-# Reduce batch size to avoid overwhelming the NIM
+# Reduce batch size to avoid overwhelming the embedding NIM
 oc set env deployment/ingestor-server NV_INGEST_FILES_PER_BATCH=4 NV_INGEST_CONCURRENT_BATCHES=1
 ```
 
@@ -677,13 +672,23 @@ oc delete project <rag-namespace>
 
 ## Deployment Files
 
-All OpenShift customizations are codified in the following files:
+All OpenShift customizations are isolated in the `openshift/` directory:
 
-- **`deploy/helm/deploy-openshift.sh`** — Main deployment script. Creates both namespaces, secrets, SCCs, deploys RAG and AIRA via Helm, applies all post-deploy patches (Milvus GPU removal, nv-ingest tolerations, nv-ingest resource tuning, embedding NIM tokenizer fix, ingestion concurrency tuning), creates Routes, and waits for rollout.
-- **`deploy/helm/values-openshift.yaml`** — AIRA Helm values override. Enables local LLM NIM (Llama 3.1 8B by default; see [Upgrading to Llama 70B](#upgrading-to-llama-70b) for the recommended 70B configuration), configures Nemotron via hosted API, fixes service types, points to RAG namespace.
-- **`deploy/helm/rag-values-openshift.yaml`** — RAG Blueprint Helm values override. Enables nv-ingest GPU models (OCR, page elements, table structure, graphic elements), disables unused models, reduces memory requests, keeps infrastructure services.
-- **`deploy/helm/aiq-aira/`** — Local AIRA Helm chart with two template patches:
-  - `templates/deployment.yaml` — Uncommented `NEMOTRON_API_KEY` (Challenge 6)
-  - `templates/phoenix-tracing.yaml` — Added `PHOENIX_WORKING_DIR=/tmp/.phoenix` (Challenge 2)
+```
+openshift/
+├── docs/deploy-openshift.md                              # This guide
+├── deploy/helm/
+│   ├── deploy-openshift.sh                               # Automated deployment script
+│   ├── values-openshift.yaml                             # AIRA Helm value overrides
+│   ├── rag-values-openshift.yaml                         # RAG Blueprint Helm value overrides
+│   └── patches/aiq-aira-templates/
+│       ├── deployment.yaml                               # Uncommented NEMOTRON_API_KEY (Challenge 6)
+│       └── phoenix-tracing.yaml                          # Added PHOENIX_WORKING_DIR (Challenge 2)
+```
+
+- **`deploy-openshift.sh`** — Main deployment script. Creates both namespaces, secrets, SCCs, copies template patches into the upstream chart, deploys RAG and AIRA via Helm, restores original templates, applies all post-deploy patches (Milvus GPU removal, nv-ingest tolerations, nv-ingest resource tuning, embedding + reranking NIM tokenizer fix, ingestion concurrency tuning), creates Routes, and waits for rollout.
+- **`values-openshift.yaml`** — AIRA Helm values override. Enables local LLM NIM (Llama 3.1 8B by default; see [Upgrading to Llama 70B](#upgrading-to-llama-70b) for the recommended 70B configuration), configures Nemotron via hosted API, fixes service types, points to RAG namespace.
+- **`rag-values-openshift.yaml`** — RAG Blueprint Helm values override. Enables nv-ingest GPU models (OCR, page elements, table structure, graphic elements), disables unused models, reduces memory requests, keeps infrastructure services.
+- **`patches/aiq-aira-templates/`** — Patched Helm chart templates that the deploy script copies into `deploy/helm/aiq-aira/templates/` before Helm install and restores afterward. No upstream files are permanently modified.
 
 Dynamic values (GPU tolerations, RAG namespace, NGC key, storage class) are passed via `--set` flags in the deploy script. Static structural overrides live in the values files.
