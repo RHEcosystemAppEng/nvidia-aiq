@@ -82,7 +82,7 @@ Ubuntu 22.04
 [Docker Compose](docs/get-started/get-started-docker-compose.md)  
 [NVIDIA AI Workbench](deploy/workbench/README.md#get-started)  
 [Helm](docs/get-started/get-started-helm.md)  
-[OpenShift](docs/deploy-openshift.md)
+[OpenShift](openshift/docs/deploy-openshift.md)
 
 ### Drivers
 
@@ -136,10 +136,12 @@ This deployment was validated with **7 GPUs** (Llama 3.1 8B for instruction-foll
 
 > **Note:** The default OpenShift configuration uses **Llama 3.1 8B** as the instruct model to reduce GPU requirements. If your cluster has additional GPU capacity, it is recommended to use **Llama 3.3 70B Instruct** instead — this is the model the upstream blueprint was designed for and produces significantly higher quality research reports. See `values-openshift.yaml` for configuration details.
 
-- [docs/deploy-openshift.md](docs/deploy-openshift.md): Full deployment guide with OpenShift-specific challenges and solutions.
-- [deploy/helm/deploy-openshift.sh](deploy/helm/deploy-openshift.sh): Automated deployment script (creates namespaces, secrets, SCCs, deploys RAG Blueprint and AIRA via Helm, applies all post-deploy patches).
-- [deploy/helm/values-openshift.yaml](deploy/helm/values-openshift.yaml): AIRA Helm value overrides for OpenShift compatibility.
-- [deploy/helm/rag-values-openshift.yaml](deploy/helm/rag-values-openshift.yaml): RAG Blueprint Helm value overrides for OpenShift compatibility.
+All OpenShift-specific files are isolated in the [`openshift/`](openshift/) directory. No upstream files are modified.
+
+- [openshift/docs/deploy-openshift.md](openshift/docs/deploy-openshift.md): Full deployment guide with OpenShift-specific challenges and solutions.
+- [openshift/deploy/helm/deploy-openshift.sh](openshift/deploy/helm/deploy-openshift.sh): Automated deployment script (creates namespaces, secrets, SCCs, deploys RAG Blueprint and AIRA via Helm, applies all post-deploy patches).
+- [openshift/deploy/helm/values-openshift.yaml](openshift/deploy/helm/values-openshift.yaml): AIRA Helm value overrides for OpenShift compatibility.
+- [openshift/deploy/helm/rag-values-openshift.yaml](openshift/deploy/helm/rag-values-openshift.yaml): RAG Blueprint Helm value overrides for OpenShift compatibility.
 
 ## Next Steps
 

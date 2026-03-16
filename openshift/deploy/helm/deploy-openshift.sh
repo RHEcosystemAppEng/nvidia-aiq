@@ -5,9 +5,9 @@
 # on OpenShift with all required adaptations.
 #
 # Usage:
-#   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira bash deploy/helm/deploy-openshift.sh
-#   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira GPU_TOLERATION_KEYS=g6-gpu,p4-gpu,nvidia.com/gpu bash deploy/helm/deploy-openshift.sh
-#   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira INSTRUCT_MODEL=70b bash deploy/helm/deploy-openshift.sh
+#   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira bash openshift/deploy/helm/deploy-openshift.sh
+#   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira GPU_TOLERATION_KEYS=g6-gpu,p4-gpu,nvidia.com/gpu bash openshift/deploy/helm/deploy-openshift.sh
+#   NGC_API_KEY=nvapi-... NVIDIA_API_KEY=nvapi-... AIRA_NAMESPACE=aira INSTRUCT_MODEL=70b bash openshift/deploy/helm/deploy-openshift.sh
 #
 # Required environment variables:
 #   NGC_API_KEY     — NGC org key for pulling images from nvcr.io and NIM model downloads.
@@ -65,8 +65,9 @@ GPU_TOLERATION_EFFECT="${GPU_TOLERATION_EFFECT:-NoSchedule}"
 RAG_CHART_URL="${RAG_CHART_URL:-https://helm.ngc.nvidia.com/nvidia/blueprint/charts/nvidia-blueprint-rag-v2.3.2.tgz}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 AIRA_CHART="$REPO_ROOT/deploy/helm/aiq-aira"
+PATCHES_DIR="$SCRIPT_DIR/patches/aiq-aira-templates"
 
 # Parse toleration keys into an array once (used throughout the script)
 IFS=',' read -ra TKEYS <<< "$GPU_TOLERATION_KEYS"
@@ -177,11 +178,13 @@ oc patch deployment rag-nv-ingest -n "$RAG_NAMESPACE" --type='json' -p='[
 ]' 2>/dev/null || true
 patch_tolerations "rag-nv-ingest" "$RAG_NAMESPACE"
 
-# Fix embedding NIM tokenizer parallelism bug.
+# Fix NIM tokenizer parallelism bug (affects both embedding and reranking NIMs).
 # The HuggingFace tokenizers Rust library panics with "GlobalPoolAlreadyInitialized"
-# when concurrent embedding requests trigger simultaneous thread pool initialization.
-echo "Patching embedding NIM tokenizer parallelism..."
+# when the rayon thread pool initialization races during Triton model loading.
+echo "Patching NIM tokenizer parallelism..."
 oc set env deployment/rag-nvidia-nim-llama-32-nv-embedqa-1b-v2 -n "$RAG_NAMESPACE" \
+  TOKENIZERS_PARALLELISM=false 2>/dev/null || true
+oc set env deployment/rag-nvidia-nim-llama-32-nv-rerankqa-1b-v2 -n "$RAG_NAMESPACE" \
   TOKENIZERS_PARALLELISM=false 2>/dev/null || true
 
 # Reduce nv-ingest concurrency to avoid overwhelming the embedding NIM.
@@ -249,6 +252,30 @@ for i in "${!TKEYS[@]}"; do
     --set "nim-llm.tolerations[${i}].operator=Exists"
   )
 done
+
+# Apply OpenShift template patches to the upstream chart.
+# These are kept separate in openshift/deploy/helm/patches/ to avoid modifying upstream files.
+# Back up originals to a temp dir (NOT inside templates/ — Helm renders all files there),
+# copy patches in, then restore after Helm install.
+echo "Applying template patches..."
+AIRA_TEMPLATES="$AIRA_CHART/templates"
+TEMPLATE_BACKUP_DIR="$(mktemp -d)"
+for f in "$PATCHES_DIR"/*; do
+  fname="$(basename "$f")"
+  if [ -f "$AIRA_TEMPLATES/$fname" ]; then
+    cp "$AIRA_TEMPLATES/$fname" "$TEMPLATE_BACKUP_DIR/$fname"
+  fi
+  cp "$f" "$AIRA_TEMPLATES/$fname"
+done
+
+restore_templates() {
+  echo "Restoring original templates..."
+  for f in "$TEMPLATE_BACKUP_DIR"/*; do
+    [ -f "$f" ] && cp "$f" "$AIRA_TEMPLATES/$(basename "$f")"
+  done
+  rm -rf "$TEMPLATE_BACKUP_DIR"
+}
+trap restore_templates EXIT
 
 echo "Installing AIRA Blueprint..."
 helm upgrade --install aira "$AIRA_CHART" \
