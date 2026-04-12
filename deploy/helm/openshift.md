@@ -2,7 +2,7 @@
 
 1. Login to OpenShift cluster
 
-> oc login --token=$OPENSHIFT_TOKEN --server$OPENSHIFT_CLUSTER_URL
+> oc login --token=$OPENSHIFT_TOKEN --server=$OPENSHIFT_CLUSTER_URL
 
 2. Create namespace
 
