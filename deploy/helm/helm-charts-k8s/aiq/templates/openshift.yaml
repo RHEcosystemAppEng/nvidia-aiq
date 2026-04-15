@@ -123,12 +123,8 @@ metadata:
     {{- include "aiq.labels" $ | nindent 4 }}
 type: Opaque
 stringData:
-  {{- with $apiKeys.nvidiaApiKey }}
-  NVIDIA_API_KEY: {{ . | quote }}
-  {{- end }}
-  {{- with $apiKeys.tavilyApiKey }}
-  TAVILY_API_KEY: {{ . | quote }}
-  {{- end }}
+  NVIDIA_API_KEY: {{ $apiKeys.nvidiaApiKey | default "" | quote }}
+  TAVILY_API_KEY: {{ $apiKeys.tavilyApiKey | default "" | quote }}
   DB_USER_NAME: {{ $apiKeys.dbUserName | default "aiq" | quote }}
   DB_USER_PASSWORD: {{ $apiKeys.dbUserPassword | default "aiq_dev" | quote }}
 {{- end }}
